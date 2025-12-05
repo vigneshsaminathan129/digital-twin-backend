@@ -12,13 +12,15 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*",
-        "https://twinhealthindia.cloud"
+        "https://clinquant-banoffee-a435a5.netlify.app",
+        "https://twinhealthindia.cloud",   # optional: for WordPress iframe
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # Google Sheet Config
