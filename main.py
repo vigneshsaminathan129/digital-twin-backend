@@ -11,11 +11,15 @@ app = FastAPI()
 # CORS (allow frontend to access backend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "*",
+        "https://twinhealthindia.cloud"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Google Sheet Config
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
