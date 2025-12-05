@@ -22,6 +22,7 @@ app.add_middleware(
 )
 
 
+
 # Google Sheet Config
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 SHEET_ID = "1Kjo-jfEYdPc_KFoCa4kL_UtBrochTiBLFFYiPQ88lio"
