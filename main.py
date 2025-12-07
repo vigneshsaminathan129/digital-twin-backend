@@ -8,30 +8,29 @@ import json
 
 app = FastAPI()
 
-# CORS Settings
+# -------------------------------
+# CORS
+# -------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://clinquant-banoffee-a435a5.netlify.app",
-        "https://twinhealthindia.cloud",
-        "*"
-    ],
+    allow_origins=["*"],  # Allow all (or replace with your frontend URL)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Google Sheet Config
+# -------------------------------
+# GOOGLE SHEET CONFIG
+# -------------------------------
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 SHEET_ID = "1MCJP5sfj0AaodAp6o6hmU7dbiXLZTXo85ZmGEB3UP9Q"
-RANGE_NAME = "'Copy of No CGM >2D - Vig, Vin'!A:Z"
+RANGE_NAME = "Sheet1!A:BB"   # Covers all columns shown in screenshots
 
 
-# -------------------------------------------------------
-# FETCH GOOGLE SHEET
-# -------------------------------------------------------
+# -------------------------------
+# FETCH THE GOOGLE SHEET
+# -------------------------------
 def fetch_sheet():
-
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if not credentials_json:
         raise Exception("❌ Missing GOOGLE_CREDENTIALS_JSON environment variable")
@@ -49,84 +48,109 @@ def fetch_sheet():
     )
 
     rows = result.get("values", [])
+
+    # Convert to DataFrame
     df = pd.DataFrame(rows)
+    df.columns = df.iloc[0]       # Set first row as header
+    df = df[1:]                   # Remove header row from data
+    df.reset_index(drop=True, inplace=True)
+
     return df
 
 
-# -------------------------------------------------------
-# MEMBERS LIST
-# -------------------------------------------------------
+# -------------------------------
+# GET ALL MEMBER IDs
+# -------------------------------
 @app.get("/members")
 def get_members():
     df = fetch_sheet()
-    member_ids = df[1].tolist()[1:]  # Column B
-    return {"members": member_ids}
+    return {"members": df["MEMBER_ID"].tolist()}
 
 
-# -------------------------------------------------------
-# SUMMARY BUILDER
-# -------------------------------------------------------
-def build_summary(m):
-    return f"""
-Your Digital Twin shows moderate engagement, with {m['meal_log']} meal logging and {m['gfy']} GFY, {m['steps']} step consistency.
-Sleep visibility is {m['sleep']} hours, protein {m['protein']}%, and fiber {m['fiber']}%, which limits your Twin’s ability
-to understand recovery patterns and how your meals support blood sugar stability.
-
-Your clinical data shows that your starting HbA1c was {m['start_hba1c']}%, and your latest eA1c is {m['latest_ea1c']}%.
-Your weight changed from {m['start_weight']} ➝ {m['latest_weight']} lbs and your BMI improved from {m['start_bmi']} ➝ {m['latest_bmi']}.
-Visceral fat changed from {m['start_vfat']} ➝ {m['latest_vfat']}. Your blood pressure changed from {m['start_bp']} ➝ {m['latest_bp']}.
-
-You are currently supported with {m['medicine']}, which provides temporary support while your metabolism continues healing.
-Long-term improvement depends on strengthening meal consistency, improving protein and fiber habits, and ensuring full visibility.
-
-To accelerate your progress, continue logging meals, increase protein and fiber daily, maintain strong step consistency,
-and track sleep so your Twin can guide you with precision.
-
-Your Digital Twin can only heal what it can see. With consistent engagement, your Twin will guide you toward
-deeper metabolic healing and long-term stability.
-""".strip()
-
-
-# -------------------------------------------------------
-# DASHBOARD ENDPOINT
-# -------------------------------------------------------
+# -------------------------------
+# ➤ MAIN DASHBOARD ENDPOINT
+# -------------------------------
 @app.get("/dashboard/{member_id}")
 def dashboard(member_id: str):
+
     df = fetch_sheet()
 
-    matched_rows = df[df[1] == member_id]
-    if matched_rows.empty:
-        return {"error": f"Member ID {member_id} not found."}
+    row = df[df["MEMBER_ID"] == member_id]
 
-    r = matched_rows.index[0]
+    if row.empty:
+        return {"error": f"❌ Member ID {member_id} not found."}
 
-    metrics = {
-        "meal_log": df.iloc[r][11],
-        "gfy": df.iloc[r][12],
-        "steps": df.iloc[r][37],
-        "sleep": df.iloc[r][41],
+    r = row.iloc[0]  # extract the row
 
-        "protein": df.iloc[r][54] if len(df.columns) > 54 else "0",
-        "fiber": df.iloc[r][53] if len(df.columns) > 53 else "0",
+    # Build Clean JSON Output
+    output = {
 
-        "start_hba1c": df.iloc[r][15],
-        "latest_ea1c": df.iloc[r][19],
+        "basic": {
+            "member_id": r["MEMBER_ID"],
+            "gender": r["Gender"],
+            "coach_name": r["coachName"],
+            "doctor_name": r["doctorName"],
+            "previous_rounds": r["Previous Rounds"],
+            "days": r["DAYS"],
+        },
 
-        "start_weight": df.iloc[r][21],
-        "latest_weight": df.iloc[r][23],
+        "chat": {
+            "last_chat_sent_date": r["LAST CHAT SENT DATE"],
+            "days_no_chat": r["# DAYS NO CHAT"],
+        },
 
-        "start_bmi": df.iloc[r][27],
-        "latest_bmi": df.iloc[r][28],
+        "meal_logs": {
+            "meal_log_7d": r["7D MEAL LOG %"],
+            "gfy_7d": r["7D GFY %"],
+            "last_meal_log_date": r["LAST MEAL LOG DATE"],
+            "days_no_meal_log": r["# DAYS NO MEAL LOG"],
+        },
 
-        "start_vfat": df.iloc[r][59],
-        "latest_vfat": df.iloc[r][60],
+        "blood_sugar": {
+            "start_hba1c": r["START HbA1c"],
+            "last_hba1c": r["LAST HbA1c"],
+            "last_1dg": r["LAST 1DG"],
+            "last_5dg": r["LAST 5DG"],
+            "last_ea1c": r["LAST eA1c"],
+            "days_no_cgm": r["# DAYS NO CGM"],
+        },
 
-        "start_bp": f"{df.iloc[r][30]} / {df.iloc[r][32]}",
-        "latest_bp": f"{df.iloc[r][31]} / {df.iloc[r][33]}",
+        "weight": {
+            "start_weight": r["START WEIGHT"],
+            "lowest_weight": r["LOWEST WEIGHT"],
+            "last_weight": r["LAST WEIGHT"],
+            "weight_loss_lbs": r["WEIGHT LOSS (LBS)"],
+            "last_weight_recorded_date": r["LAST WEIGHT RECORDED DATE"],
+            "days_no_weight": r["# DAYS NO WEIGHT"],
+        },
 
-        "medicine": df.iloc[r][52],
+        "blood_pressure": {
+            "last_sbp": r["LAST SBP"],
+            "last_dbp": r["LAST DBP"],
+            "last_bp_recorded_date": r["LAST BP RECORDED DATE"],
+            "days_no_bp": r["# DAYS NO BP"],
+        },
+
+        "steps": {
+            "steps_1d": r["STEPS_1D"],
+            "steps_7d": r["STEPS_7D"],
+            "last_steps_recorded_date": r["LAST STEPS RECORDED DATE"],
+            "days_no_steps": r["# DAYS NO STEPS"],
+        },
+
+        "sleep": {
+            "sleep_1d": r["SLEEP_1D"],
+            "sleep_7d": r["SLEEP_7D"],
+            "last_sleep_recorded_date": r["LAST SLEEP RECORDED DATE"],
+            "days_no_sleep": r["# DAYS NO SLEEP"],
+        },
+
+        "medicine": {
+            "start_diabetic_medicine": r["Start Diabetic Medicine"],
+            "current_diabetic_medicine": r["Current Diabetic Medicine"],
+        },
+
+        "message_to_send": r["MESSAGES TO BE SENT AS CHAT"],
     }
 
-    summary = build_summary(metrics)
-
-    return {"metrics": metrics, "summary": summary}
+    return output
