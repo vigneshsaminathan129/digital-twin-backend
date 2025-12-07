@@ -25,7 +25,7 @@ app.add_middleware(
 
 # Google Sheet Config
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-SHEET_ID = "SHEET_ID = "1feRkTQ-GhXGtmNwknJZ4QLx3zOmZV_t1"
+SHEET_ID = "1feRkTQ-GhXGtmNwknJZ4QLx3zOmZV_t1"
 RANGE = "'RANGE_NAME = "Sheet1!A:Z"
 
 
