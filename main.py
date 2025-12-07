@@ -8,9 +8,7 @@ import json
 
 app = FastAPI()
 
-# -------------------------
-# CORS (allow frontend)
-# -------------------------
+# CORS Settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -23,31 +21,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------
-# Google Sheet Configuration
-# -------------------------
+# Google Sheet Config
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-
-SHEET_ID = "1feRkTQ-GhXGtmNwknJZ4QLx3zOmZV_t1"
-
-# Your tab name (IMPORTANT: must match exactly)
+SHEET_ID = "1MCJP5sfj0AaodAp6o6hmU7dbiXLZTXo85ZmGEB3UP9Q"
 RANGE_NAME = "'Copy of No CGM >2D - Vig, Vin'!A:Z"
 
 
-# -------------------------
-# Function: Fetch Google Sheet
-# -------------------------
+# -------------------------------------------------------
+# FETCH GOOGLE SHEET
+# -------------------------------------------------------
 def fetch_sheet():
 
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if not credentials_json:
         raise Exception("❌ Missing GOOGLE_CREDENTIALS_JSON environment variable")
 
-    # Load JSON → dict → credentials
     creds_dict = json.loads(credentials_json)
     credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
 
-    # Build Sheets API client
     service = build("sheets", "v4", credentials=credentials)
 
     result = (
@@ -62,55 +53,50 @@ def fetch_sheet():
     return df
 
 
-# -------------------------
-# Endpoint: GET Member IDs
-# -------------------------
+# -------------------------------------------------------
+# MEMBERS LIST
+# -------------------------------------------------------
 @app.get("/members")
 def get_members():
     df = fetch_sheet()
-
-    if df.empty or len(df.columns) < 2:
-        return {"members": []}
-
-    member_ids = df[1].tolist()[1:]   # Column B = Member IDs
+    member_ids = df[1].tolist()[1:]  # Column B
     return {"members": member_ids}
 
 
-# -------------------------
-# Build Summary Paragraph
-# -------------------------
+# -------------------------------------------------------
+# SUMMARY BUILDER
+# -------------------------------------------------------
 def build_summary(m):
-
     return f"""
-Your Digital Twin shows moderate engagement, with {m['meal_log']} meal logging and {m['gfy']} GFY. 
-Steps: {m['steps']}, Sleep: {m['sleep']} hours. Protein: {m['protein']}%, Fiber: {m['fiber']}%. 
+Your Digital Twin shows moderate engagement, with {m['meal_log']} meal logging and {m['gfy']} GFY, {m['steps']} step consistency.
+Sleep visibility is {m['sleep']} hours, protein {m['protein']}%, and fiber {m['fiber']}%, which limits your Twin’s ability
+to understand recovery patterns and how your meals support blood sugar stability.
 
-Clinical data:
-• Starting HbA1c: {m['start_hba1c']}% → Latest eA1c: {m['latest_ea1c']}%
-• Weight: {m['start_weight']} → {m['latest_weight']} lbs
-• BMI: {m['start_bmi']} → {m['latest_bmi']}
-• Visceral Fat: {m['start_vfat']} → {m['latest_vfat']}
-• Blood Pressure: {m['start_bp']} → {m['latest_bp']}
+Your clinical data shows that your starting HbA1c was {m['start_hba1c']}%, and your latest eA1c is {m['latest_ea1c']}%.
+Your weight changed from {m['start_weight']} ➝ {m['latest_weight']} lbs and your BMI improved from {m['start_bmi']} ➝ {m['latest_bmi']}.
+Visceral fat changed from {m['start_vfat']} ➝ {m['latest_vfat']}. Your blood pressure changed from {m['start_bp']} ➝ {m['latest_bp']}.
 
-Current medication: {m['medicine']}
+You are currently supported with {m['medicine']}, which provides temporary support while your metabolism continues healing.
+Long-term improvement depends on strengthening meal consistency, improving protein and fiber habits, and ensuring full visibility.
 
-Your Twin can heal only what it can see. Improve logging, protein, fiber, steps, and sleep 
-to drive deeper metabolic healing and long-term stability.
+To accelerate your progress, continue logging meals, increase protein and fiber daily, maintain strong step consistency,
+and track sleep so your Twin can guide you with precision.
+
+Your Digital Twin can only heal what it can see. With consistent engagement, your Twin will guide you toward
+deeper metabolic healing and long-term stability.
 """.strip()
 
 
-# -------------------------
-# Endpoint: Dashboard Data
-# -------------------------
+# -------------------------------------------------------
+# DASHBOARD ENDPOINT
+# -------------------------------------------------------
 @app.get("/dashboard/{member_id}")
 def dashboard(member_id: str):
     df = fetch_sheet()
 
-    # Find member row
     matched_rows = df[df[1] == member_id]
-
     if matched_rows.empty:
-        return {"error": f"Member ID '{member_id}' not found."}
+        return {"error": f"Member ID {member_id} not found."}
 
     r = matched_rows.index[0]
 
@@ -138,7 +124,7 @@ def dashboard(member_id: str):
         "start_bp": f"{df.iloc[r][30]} / {df.iloc[r][32]}",
         "latest_bp": f"{df.iloc[r][31]} / {df.iloc[r][33]}",
 
-        "medicine": df.iloc[r][52] if len(df.columns) > 52 else "",
+        "medicine": df.iloc[r][52],
     }
 
     summary = build_summary(metrics)
