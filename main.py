@@ -20,108 +20,107 @@ app.add_middleware(
 # Google Sheet Config
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 SHEET_ID = "1MCJP5sfj0AaodAp6o6hmU7dbiXLZTXo85ZmGEB3UP9Q"
-RANGE_NAME = "'Copy of No CGM >2D - Vig, Vin'!A:BZ"
+RANGE_NAME = "'Copy of No CGM >2D - Vig, Vin'!A:CB"   # enough columns
 
 
-# ----------------------------
-# Fetch Google Sheet
-# ----------------------------
+# -----------------------------------
+# Fetch sheet
+# -----------------------------------
 def fetch_sheet():
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if not credentials_json:
-        raise Exception("❌ Missing GOOGLE_CREDENTIALS_JSON environment variable")
+        raise Exception("❌ Missing GOOGLE_CREDENTIALS_JSON")
 
     creds_dict = json.loads(credentials_json)
     credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
 
     service = build("sheets", "v4", credentials=credentials)
-    result = (
-        service.spreadsheets()
-        .values()
-        .get(spreadsheetId=SHEET_ID, range=RANGE_NAME)
-        .execute()
-    )
+    result = service.spreadsheets().values().get(
+        spreadsheetId=SHEET_ID,
+        range=RANGE_NAME
+    ).execute()
 
     rows = result.get("values", [])
     df = pd.DataFrame(rows)
     return df
 
 
-# ----------------------------
-# MEMBERS LIST
-# ----------------------------
+# -----------------------------------
+# SUMMARY BUILDER (same as V1)
+# -----------------------------------
+def build_summary(m):
+    return f"""
+Your Digital Twin shows moderate engagement, with {m['meal_log']} meal logging and {m['gfy']} GFY, {m['steps']} step consistency.
+Sleep visibility is {m['sleep']} hours, protein {m['protein']}%, and fiber {m['fiber']}%, which limits your Twin’s ability
+to understand recovery patterns and how your meals support blood sugar stability.
+
+Your clinical data shows that your starting HbA1c was {m['start_hba1c']}%, and your latest eA1c is {m['latest_ea1c']}%.
+Your weight changed from {m['start_weight']} ➝ {m['latest_weight']} lbs and your BMI improved from {m['start_bmi']} ➝ {m['latest_bmi']}.
+Visceral fat changed from {m['start_vfat']} ➝ {m['latest_vfat']}. Your blood pressure changed from {m['start_bp']} ➝ {m['latest_bp']}.
+
+You are currently supported with {m['medicine']}, which provides temporary support while your metabolism continues healing.
+Long-term improvement depends on strengthening meal consistency, improving protein and fiber habits, and ensuring full visibility.
+
+To accelerate your progress, continue logging meals, increase protein and fiber daily, maintain strong step consistency,
+and track sleep so your Twin can guide you with precision.
+
+Your Digital Twin can only heal what it can see. With consistent engagement, your Twin will guide you toward
+deeper metabolic healing and long-term stability.
+""".strip()
+
+
+# -----------------------------------
+# Members
+# -----------------------------------
 @app.get("/members")
 def get_members():
     df = fetch_sheet()
-
-    # Member ID → Column B = index 1
     return {"members": df[1].tolist()[1:]}
 
 
-# ----------------------------
-# DASHBOARD ENDPOINT
-# ----------------------------
+# -----------------------------------
+# Dashboard (V2 mapped → V1 format)
+# -----------------------------------
 @app.get("/dashboard/{member_id}")
 def dashboard(member_id: str):
     df = fetch_sheet()
 
-    # Find row matching MEMBER_ID
-    matched_rows = df[df[1] == member_id]
-    if matched_rows.empty:
+    matched = df[df[1] == member_id]
+    if matched.empty:
         return {"error": f"Member ID {member_id} not found"}
 
-    r = matched_rows.index[0]
+    r = matched.index[0]
 
-    # Extract metrics using your confirmed column indexes
+    # -----------------------------------
+    # COLUMN MAPPING (your confirmed values)
+    # -----------------------------------
     metrics = {
-        "member_id": df.iloc[r][1],
-        "patient_name": df.iloc[r][2],
-        "gender": df.iloc[r][3],
-        "coach_name": df.iloc[r][4],
-        "doctor_name": df.iloc[r][5],
+        "meal_log": df.iloc[r][11],        # L → 7D MEAL LOG %
+        "gfy": df.iloc[r][12],             # M → 7D GFY %
+        "steps": df.iloc[r][37],           # AL → STEPS_7D
+        "sleep": df.iloc[r][41],           # AP → SLEEP_7D
 
-        "days": df.iloc[r][7],
-        "meal_log_7d": df.iloc[r][11],
-        "gfy_7d": df.iloc[r][12],
+        "protein": df.iloc[r][54] if len(df.columns) > 54 else "0",   # Taget_protein_1D
+        "fiber": df.iloc[r][53] if len(df.columns) > 53 else "0",     # Taget_fibre_1D
 
-        "last_meal_log_date": df.iloc[r][13],
-        "days_no_meal": df.iloc[r][14],
+        "start_hba1c": df.iloc[r][15],     # P
+        "latest_ea1c": df.iloc[r][19],     # T
 
-        "start_hba1c": df.iloc[r][15],
-        "latest_hba1c": df.iloc[r][16],
-        "last_1dg": df.iloc[r][17],
-        "last_5dg": df.iloc[r][18],
-        "last_ea1c": df.iloc[r][19],
+        "start_weight": df.iloc[r][21],    # V
+        "latest_weight": df.iloc[r][22],   # W
 
-        "start_weight": df.iloc[r][21],
-        "last_weight": df.iloc[r][22],
-        "weight_loss": df.iloc[r][24],
-        "last_weight_date": df.iloc[r][25],
+        "start_bmi": df.iloc[r][27],       # AB
+        "latest_bmi": df.iloc[r][28],      # AC
 
-        "start_bmi": df.iloc[r][27],
-        "last_bmi": df.iloc[r][28],
+        "start_vfat": df.iloc[r][59],      # BH
+        "latest_vfat": df.iloc[r][60],     # BI
 
-        "start_sbp": df.iloc[r][30],
-        "last_sbp": df.iloc[r][31],
-        "start_dbp": df.iloc[r][32],
-        "last_dbp": df.iloc[r][33],
-        "last_bp_date": df.iloc[r][34],
+        "start_bp": f"{df.iloc[r][30]} / {df.iloc[r][32]}",   # AE / AG
+        "latest_bp": f"{df.iloc[r][31]} / {df.iloc[r][33]}",  # AF / AH
 
-        "steps_1d": df.iloc[r][36],
-        "steps_7d": df.iloc[r][37],
-        "last_steps_date": df.iloc[r][38],
-
-        "sleep_1d": df.iloc[r][40],
-        "sleep_7d": df.iloc[r][41],
-        "last_sleep_date": df.iloc[r][42],
-
-        "start_diabetic_med": df.iloc[r][51],
-        "current_diabetic_med": df.iloc[r][52],
-
-        "start_visceral_fat": df.iloc[r][59],
-        "latest_visceral_fat": df.iloc[r][60],
-
-        "message_chat": df.iloc[r][61],   # Long paragraph
+        "medicine": df.iloc[r][52],        # BA → Current Diabetic Medicine
     }
 
-    return {"metrics": metrics}
+    summary = build_summary(metrics)
+
+    return {"metrics": metrics, "summary": summary}
